@@ -1,0 +1,8 @@
+requirements:
+	tcp based
+	varify packets with special number and padding and format
+	source and destination clinets connect on differnt hosts
+
+non required
+	late connectors
+	conection that start, stop then start again

@@ -1,0 +1,2 @@
+cd wire-storm
+python3 tests.py
