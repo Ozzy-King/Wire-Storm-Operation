@@ -21,6 +21,11 @@
 #define _BUFFER_DATA_START_ 8
 char fullPacketBuffer[_PACKET_HEADER_SIZE_ + _MAX_PACKET_DATA_SIZE_];
 #define packetHeader (fullPacketBuffer+_BUFFER_HEADER_START_)
+#define packetHeaderChecksumIndex 4
+
+#define packetHeaderSensitiveBit (fullPacketBuffer[1]&0b00000010)
+#define packetHeaderChecksum ((uint16_t)(packetHeader[4] << 8) | packetHeader[5])
+
 #define packetData (fullPacketBuffer+_BUFFER_DATA_START_)
 
 
@@ -95,11 +100,12 @@ int sourceHandler(){
 			//gets the inital 8byte header and parse length
 			if(recvMsg(connectedSource, packetHeader, _PACKET_HEADER_SIZE_, 0)){ RecvHost = false; continue;  }//get inital header
 			int msgLen = (packetHeader[2] << 8) | packetHeader[3];
-			
+			int fullPacketLen = msgLen + _BUFFER_HEADER_START_;
+
 			//get the amount of set in header
 			std::cout << "data length: " << msgLen << std::endl;
 			if(recvMsg(connectedSource, packetData, msgLen, 0)){ RecvHost = false; continue; }//get data amount of data spesifiyed in header
-			
+
 			//set nonblocking and attempt to get one more byte of data to check if the there is too much data
 			tempByte[0] = {(char)_MAGIC_NUMBER_};
 			setNonblocking(connectedSource);
@@ -109,7 +115,49 @@ int sourceHandler(){
 				continue; //continue to next message to handle
 			}
 			std::cout << "real packet" << std::endl;
+
+			//print packet
+			std::cout << "thing: " << std::endl;
+			for(int i = 0; i < fullPacketLen; i++){
+				std::cout << std::hex << (uint16_t)fullPacketBuffer[i] << ":";
+			}
+			std::cout << std::endl;
+
+			bool secure = false;
 			//if the packets real check sensitivity bit
+			std::cout << std::hex << "checksum: " << (uint16_t)((packetHeader[4] << 8) | packetHeader[5]) << std::endl;
+			if((fullPacketBuffer[1] & 0b00000010) == 0){//if sensitive bit is 0 (not set)
+				secure = true;
+				std::cout << "secure bit not secure: " << packetHeaderSensitiveBit << std::endl;
+			}
+			else{//if bit is set
+				uint32_t checksumTest = 0;
+				int i;
+				for(i = 0; i < (fullPacketLen/2)*2; i+=2){
+					uint16_t wordValue = 0;
+					if(i == packetHeaderChecksumIndex){ wordValue = 0xcccc; }
+					else{ wordValue = fullPacketBuffer[i] << 8 | fullPacketBuffer[i+1]; }
+					checksumTest += wordValue;
+				}
+				if(fullPacketLen & 0x01){ //if the length is odd, need to add the last byte for the check sum
+					checksumTest += fullPacketBuffer[fullPacketLen - 1] << 8;
+				}
+				while(checksumTest >> 16){
+					checksumTest = (checksumTest & 0xFFFF) + (checksumTest >> 16);
+ 				}
+ 				checksumTest = ~checksumTest;
+
+				std::cout << std::hex << "checksum: " << (uint16_t)((packetHeader[4] << 8) | packetHeader[5]) << " - cal Checksum: " << checksumTest << std::endl;
+				if(checksumTest == ((packetHeader[4] << 8) | packetHeader[5])){
+					secure = true;
+					std::cout << "secure" <<std::endl;
+				}
+			}
+			if(!secure){
+				std::cout << "not secure" << std::endl;
+				continue;
+			}
+
 
 			//if real broadcast to all destinations
 			for(int i = listOfDestinations.size()-1; i >= 0; i--){
@@ -132,9 +180,7 @@ int sourceHandler(){
 					std::cout << "removeing" << std::endl;
 					listOfDestinations.erase(listOfDestinations.begin()+(i) );
 				}
-				std::cout << "got hear it hasnt broke" <<std::endl;
 			}
-			std::cout << "got hear it hasnt broke2" <<std::endl;
 		}
 
 		close(connectedSource);
